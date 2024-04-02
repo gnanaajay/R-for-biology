@@ -77,11 +77,14 @@ gbm_usp6 <- gbm_matrix_vst %>%
   left_join(., gene_metadata, by = "gene_id") %>%
   filter(gene_name == "USP6")
 
-# get median value   
-median_value <- median(gbm_usp6$counts)
 
-# denote which cases have higher or lower expression than median count
-gbm_usp6$strata <- ifelse(gbm_usp6$counts >= median_value, "HIGH", "LOW")
+# List of the 5 submitter IDs for solid tissue normal
+solid_tissue_normal_ids <- c("TCGA-06-0681-11A-41R-A36H-07", "TCGA-06-0675-11A-32R-A36H-07", "TCGA-06-AABW-11A-31R-A36H-07", "TCGA-06-0678-11A-32R-A36H-07", "TCGA-06-0680-11A-32R-A36H-07")
+
+# Assuming your data frame is called gbm_usp6 and the submitter ID column is named "submitter_id"
+gbm_usp6 <- gbm_usp6 %>%
+  mutate(sample_group = ifelse(case_id %in% solid_tissue_normal_ids, "Solid Tissue Normal", "Tumor Sample"))
+
 
 # Add clinical information to gbm_usp6
 gbm_usp6$case_id <- gsub('-01C.*', '', gbm_usp6$case_id)
@@ -89,7 +92,7 @@ gbm_usp6$case_id <- gsub('-01C.*', '', gbm_usp6$case_id)
 gbm_usp6 <- merge(gbm_usp6, clinical_gbm, by.x = 'case_id', by.y = 'submitter_id')
 
 # fitting survival curve -----------
-fit <- survfit(Surv(overall_survival, deceased) ~ strata, data = gbm_usp6)
+fit <- survfit(Surv(overall_survival, deceased) ~ sample_group, data = gbm_usp6)
 fit
 ggsurvplot(fit,
            data = gbm_usp6,
@@ -101,4 +104,42 @@ fit2 <- survdiff(Surv(overall_survival, deceased) ~ strata, data = gbm_usp6)
 
 # Save the DataFrame as a CSV file with the correct syntax and file path
 write.csv(gbm_usp6, file = "P:/R/gbm_usp6.csv", row.names = TRUE)
+
+# Create a subset of data for "solid tissue normal"
+solid_tissue_normal <- gbm_usp6[gbm_usp6$sample_type == "Solid Tissue Normal", ]
+
+# Create a subset of data for the rest (tumor samples)
+tumor_samples <- gbm_usp6[gbm_usp6$sample_type != "Solid Tissue Normal", ]
+
+# Define survival object for "solid tissue normal" samples
+surv_object_solid_normal <- Surv(
+  time = solid_tissue_normal$overall_survival,
+  event = solid_tissue_normal$deceased
+)
+
+# Define survival object for tumor samples
+surv_object_tumor <- Surv(
+  time = tumor_samples$overall_survival,
+  event = tumor_samples$deceased
+)
+
+# Perform log-rank test to compare survival curves
+surv_diff_test <- survdiff(
+  formula = surv_object_solid_normal ~ surv_object_tumor)
+
+# Print the results
+print(surv_diff_test)
+
+# Generate Kaplan-Meier survival curves for both groups
+surv_plot <- survfit(surv_object_solid_normal ~ 1, data = solid_tissue_normal)
+plot(surv_plot, col = "blue", lty = 1, xlab = "Time", ylab = "Survival Probability", main = "Kaplan-Meier Survival Curve for Solid Tissue Normal")
+
+surv_plot <- survfit(surv_object_tumor ~ 1, data = tumor_samples)
+lines(surv_plot, col = "red", lty = 2)
+
+# Add legend
+legend("topright", legend = c("Solid Tissue Normal", "Tumor"), col = c("blue", "red"), lty = 1:2)
+
+
+
 
